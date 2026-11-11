@@ -9,34 +9,12 @@ This package does **not** embed DrPanda. It mounts the official in-box `@deepsee
 ```text
 DeepSeek Harness
   └─ dsh-dr-panda-mcp (this plugin)
-       ├─ drpanda_mcp_doctor          (host diagnostic tool)
+       ├─ plugin page / Settings → DrPanda MCP   (URL + Token form)
+       ├─ drpanda_mcp_doctor
        └─ @deepseek-ai/dsh-mcp-client
-            transport: streamable-http
-            url:       $DR_PANDA_MCP_URL
-            headers:   Authorization: Bearer $DR_PANDA_MCP_TOKEN
-                 └─ dr-panda-mcp (Python service you deploy separately)
+            url/token via DSH credentials (hot-reload)
+                 └─ dr-panda-mcp (deploy separately)
 ```
-
-## What the agent gets
-
-After the bridge connects, tools appear as `mcp__drpanda__*`, for example:
-
-| Tool | Purpose |
-| --- | --- |
-| `mcp__drpanda__systems_status` | List environments / targets and recent probe results |
-| `mcp__drpanda__mysql_query` / `mysql_explain` | Read-only MySQL |
-| `mcp__drpanda__cls_search` / `cls_context` | CLS log search |
-| `mcp__drpanda__gitlab_search_code` | Code search |
-| `mcp__drpanda__kafka_lag` / `rabbit_queues` | Queue backlog |
-| `mcp__drpanda__mongo_*` / `es_*` / `redis_*` / `nacos_*` / `jenkins_*` | Other registered targets |
-
-Plus one host tool: `drpanda_mcp_doctor` — use it when the bridge tools are missing or return 401.
-
-## Requirements
-
-1. **DeepSeek Harness** with the in-box `@deepseek-ai/dsh-mcp-client` (Desktop or `dsh web`).
-2. A running **[dr-panda-mcp](https://github.com/linyu19872008/dr-panda-mcp)** instance (web console + `/mcp`).
-3. An MCP Bearer token from DrPanda → **My account** (web session cookies are not accepted by `/mcp`).
 
 ## Install
 
@@ -44,63 +22,50 @@ Plus one host tool: `drpanda_mcp_doctor` — use it when the bridge tools are mi
 dsh plugin --profile web add github:linyu19872008/dsh-dr-panda-mcp
 ```
 
-Or from a local checkout:
+Restart DSH, then open **Plugins → dsh-dr-panda-mcp** (or **Settings → DrPanda MCP**):
 
-```bash
-dsh plugin --profile web add ./dsh-dr-panda-mcp
-```
+1. Set **MCP URL** (default `http://127.0.0.1:8111/mcp`)
+2. Paste a **Bearer Token** from DrPanda → **My account**
+3. Click **Save**, then **Test connection**
+4. Call `mcp__drpanda__systems_status` (or `drpanda_mcp_doctor` if something fails)
 
-Then export credentials for the DSH process and restart:
+Token is stored as DSH credential `DR_PANDA_MCP_TOKEN` (not in the patch file). URL is synced to `DR_PANDA_MCP_URL` so changes hot-reconnect through the official MCP client.
 
-```bash
-export DR_PANDA_MCP_URL=http://127.0.0.1:8111/mcp
-export DR_PANDA_MCP_TOKEN='<token from DrPanda My account>'
-# optional:
-# export DR_PANDA_MCP_SERVER=drpanda
+## What the agent gets
 
-dsh web
-```
+| Tool | Purpose |
+| --- | --- |
+| `mcp__drpanda__systems_status` | Environments / targets / capabilities |
+| `mcp__drpanda__mysql_*` / `mongo_*` / `es_*` / `redis_*` | Datastores |
+| `mcp__drpanda__cls_*` / `gitlab_*` | Logs & code |
+| `mcp__drpanda__kafka_*` / `rabbit_*` | Queues |
+| `mcp__drpanda__nacos_*` / `jenkins_*` | Config & CI |
 
-Verify:
+Plus host tool `drpanda_mcp_doctor`.
 
-```bash
-dsh --profile web --dump-config | grep -A20 drpanda-mcp
-```
+## Requirements
 
-Ask the agent to call `drpanda_mcp_doctor`, then `mcp__drpanda__systems_status`.
+1. DeepSeek Harness with in-box `@deepseek-ai/dsh-mcp-client`
+2. A running [dr-panda-mcp](https://github.com/linyu19872008/dr-panda-mcp) instance
+3. An MCP Bearer token from DrPanda → My account
 
-## Configuration
+## Advanced / CI (environment variables)
+
+Optional overrides when you cannot use the UI (headless CI, etc.):
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DR_PANDA_MCP_URL` | `http://127.0.0.1:8111/mcp` | Streamable HTTP MCP endpoint |
-| `DR_PANDA_MCP_TOKEN` | _(empty)_ | Bearer token (required for real calls) |
-| `DR_PANDA_MCP_SERVER` | `drpanda` | Tool namespace (`mcp__<name>__*`) |
+| `DR_PANDA_MCP_URL` | `http://127.0.0.1:8111/mcp` | MCP endpoint (also used as credential key) |
+| `DR_PANDA_MCP_TOKEN` | _(empty)_ | Bearer token (credential key; UI store outranks env) |
+| `DR_PANDA_MCP_SERVER` | `drpanda` | Tool namespace |
 
-Override the bridge row from your profile patch if you prefer not to use env vars:
-
-```yaml
-- id: drpanda-mcp-bridge
-  config:
-    serverName: drpanda
-    transport: streamable-http
-    url: https://mcp.example.com/mcp
-    headers:
-      Authorization: !!js '`Bearer ${process.env.DR_PANDA_MCP_TOKEN}`'
-    toolCallTimeoutMs: 180000
-    failOnStartupError: false
+```bash
+export DR_PANDA_MCP_URL=http://127.0.0.1:8111/mcp
+export DR_PANDA_MCP_TOKEN='<token>'
+dsh web
 ```
 
-Never commit a live token into `cordis.patch.yml`.
-
-## How this relates to DrPanda
-
-| Repo | Role |
-| --- | --- |
-| [linyu19872008/dr-panda-mcp](https://github.com/linyu19872008/dr-panda-mcp) | Python MCP + web console (PyPI: `dr-panda-mcp`) |
-| **this repo** | DSH one-click install + bridge config + doctor |
-
-Installing this plugin does **not** deploy DrPanda. Deploy the service first, register targets in the console, then connect Harness.
+A token saved in the UI **outranks** the environment until you clear it on the plugin page.
 
 ## Development
 

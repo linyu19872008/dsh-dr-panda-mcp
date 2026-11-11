@@ -1,29 +1,16 @@
 # dsh-dr-panda-mcp — carrier bundle patch
 #
 # Two loader rows:
-# 1. `drpanda-mcp-plugin` → this package's host half (lib/index.js).
-#    Registers one diagnostic tool: `drpanda_mcp_doctor`.
-# 2. `drpanda-mcp-bridge` → the OFFICIAL in-box MCP client bridge
-#    (`@deepseek-ai/dsh-mcp-client`). Third-party plugins must NOT import it;
-#    the DSH loader resolves it from the Desktop / CLI install.
+# 1. `drpanda-mcp-plugin` → host half (lib/index.js): settings UI routes,
+#    credentials sync, doctor tool, and the `drpandaBridge` service.
+# 2. `drpanda-mcp-bridge` → official in-box `@deepseek-ai/dsh-mcp-client`.
 #
-# Every tool the bridge registers appears as `mcp__drpanda__*`.
+# Secrets and URL hot-reload go through DSH credentials + expandTemplates:
+#   DR_PANDA_MCP_URL    (synced from the plugin page / defaults)
+#   DR_PANDA_MCP_TOKEN  (set on the plugin page; env works as fallback)
 #
-# Configure the running DrPanda service with environment variables (do not
-# commit tokens into any patch file):
-#
-#   DR_PANDA_MCP_URL     default http://127.0.0.1:8111/mcp
-#   DR_PANDA_MCP_TOKEN   Bearer token from the DrPanda web console ("My account")
-#   DR_PANDA_MCP_SERVER  MCP namespace (default drpanda)
-#
-# Override this bridge row from your profile patch if needed:
-#
-#   - id: drpanda-mcp-bridge
-#     config:
-#       url: 'https://mcp.example.com/mcp'
-#       headers:
-#         Authorization: 'Bearer …'
-#       toolCallTimeoutMs: 180000
+# Primary UX: open the plugin page (or Settings → DrPanda MCP) and save.
+# Env vars remain supported for CI / headless profiles.
 #
 - insert:
     - id: drpanda-mcp-plugin
@@ -31,16 +18,15 @@
 
     - id: drpanda-mcp-bridge
       name: "@deepseek-ai/dsh-mcp-client"
+      inject: [drpandaBridge]
       config:
-        # Namespace for every tool name: mcp__drpanda__mysql_query, …
-        serverName: !!js process.env.DR_PANDA_MCP_SERVER || "drpanda"
+        serverName: !!js ctx.drpandaBridge.serverName
         transport: streamable-http
-        url: !!js process.env.DR_PANDA_MCP_URL || "http://127.0.0.1:8111/mcp"
+        url: "${credential:DR_PANDA_MCP_URL}"
+        expandTemplates: true
         headers:
-          Authorization: !!js '`Bearer ${process.env.DR_PANDA_MCP_TOKEN || ""}`'
-        # Incident queries (CLS, Kafka lag, MySQL EXPLAIN) can exceed 60 s.
-        toolCallTimeoutMs: 120000
-        # A downed or unconfigured DrPanda must never fail the whole profile.
+          Authorization: "Bearer ${credential:DR_PANDA_MCP_TOKEN}"
+        toolCallTimeoutMs: !!js ctx.drpandaBridge.toolCallTimeoutMs
         failOnStartupError: false
         reconnect:
           enabled: true
